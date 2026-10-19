@@ -1,5 +1,6 @@
 # The user must already be a member of the organization. Terraform adopts the
-# existing member by ID and updates the role if it differs from this config.
+# existing member by ID only when their current role matches this config.
+# Destroy fails unless remove_on_destroy is enabled and applied first.
 resource "anthropic_organization_member" "example" {
   id   = "user_01ABCDEFGHIJKLMNOPQRSTUVWX"
   role = "developer"
