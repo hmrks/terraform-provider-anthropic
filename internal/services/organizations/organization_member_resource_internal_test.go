@@ -247,6 +247,54 @@ func TestOrganizationMemberResource_Read_notFoundRemovesFromState(t *testing.T) 
 	}
 }
 
+func TestOrganizationMemberResource_GetMemberErrors(t *testing.T) {
+	for _, test := range []struct {
+		name         string
+		responseCode int
+		body         string
+		wantDetail   string
+	}{
+		{name: "malformed response", responseCode: http.StatusOK, body: `{`, wantDetail: "unable to parse organization member response"},
+		{name: "forbidden", responseCode: http.StatusForbidden, body: `{"error":{"message":"access denied"}}`, wantDetail: "access denied"},
+	} {
+		for _, operation := range []string{"create", "read"} {
+			t.Run(operation+"/"+test.name, func(t *testing.T) {
+				srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+					w.WriteHeader(test.responseCode)
+					_, _ = io.WriteString(w, test.body)
+				}))
+				defer srv.Close()
+				member := &OrganizationMemberResource{client: admintest.NewClient(t, srv)}
+				ctx := context.Background()
+				state := schematest.NullState(t, member)
+				data := mapOrganizationMemberToResourceState(organizationMemberAPIResponse{ID: "user_example", Role: "developer"}, types.BoolValue(false))
+				if diags := state.Set(ctx, data); diags.HasError() {
+					t.Fatalf("State.Set: %v", diags)
+				}
+				if operation == "create" {
+					resp := resource.CreateResponse{State: tfsdk.State{Raw: tftypes.NewValue(schematest.ResourceObjectType(t, member), nil), Schema: state.Schema}}
+					member.Create(ctx, resource.CreateRequest{Plan: tfsdk.Plan(state)}, &resp)
+					if !resp.Diagnostics.HasError() || !strings.Contains(resp.Diagnostics[0].Detail(), test.wantDetail) {
+						t.Fatalf("expected %q error, got %v", test.wantDetail, resp.Diagnostics)
+					}
+					if !resp.State.Raw.IsNull() {
+						t.Fatal("failed lookup must not adopt the member")
+					}
+				} else {
+					resp := resource.ReadResponse{State: state}
+					member.Read(ctx, resource.ReadRequest{State: state}, &resp)
+					if !resp.Diagnostics.HasError() || !strings.Contains(resp.Diagnostics[0].Detail(), test.wantDetail) {
+						t.Fatalf("expected %q error, got %v", test.wantDetail, resp.Diagnostics)
+					}
+					if !resp.State.Raw.Equal(state.Raw) {
+						t.Fatal("failed lookup must preserve existing state")
+					}
+				}
+			})
+		}
+	}
+}
+
 // --- Update ---
 
 func TestOrganizationMemberResource_Update(t *testing.T) {

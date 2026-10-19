@@ -147,7 +147,7 @@ func (r *OrganizationMemberResource) Create(ctx context.Context, req resource.Cr
 	}
 
 	userID := plan.ID.ValueString()
-	respBytes, err := r.client.DoRequest(ctx, "GET", "/v1/organizations/users/"+userID, nil)
+	member, err := r.getMember(ctx, userID)
 	if err != nil {
 		if admin.IsNotFound(err) {
 			resp.Diagnostics.AddError(
@@ -157,12 +157,6 @@ func (r *OrganizationMemberResource) Create(ctx context.Context, req resource.Cr
 			return
 		}
 		resp.Diagnostics.AddError("Client Error", fmt.Sprintf("Unable to find organization member: %s", err))
-		return
-	}
-
-	var member organizationMemberAPIResponse
-	if err := json.Unmarshal(respBytes, &member); err != nil {
-		resp.Diagnostics.AddError("Parse Error", fmt.Sprintf("Unable to parse organization member response: %s", err))
 		return
 	}
 
@@ -186,19 +180,13 @@ func (r *OrganizationMemberResource) Read(ctx context.Context, req resource.Read
 		return
 	}
 
-	respBytes, err := r.client.DoRequest(ctx, "GET", "/v1/organizations/users/"+data.ID.ValueString(), nil)
+	member, err := r.getMember(ctx, data.ID.ValueString())
 	if err != nil {
 		if admin.IsNotFound(err) {
 			resp.State.RemoveResource(ctx)
 			return
 		}
 		resp.Diagnostics.AddError("Client Error", fmt.Sprintf("Unable to read organization member: %s", err))
-		return
-	}
-
-	var member organizationMemberAPIResponse
-	if err := json.Unmarshal(respBytes, &member); err != nil {
-		resp.Diagnostics.AddError("Parse Error", fmt.Sprintf("Unable to parse organization member response: %s", err))
 		return
 	}
 
@@ -267,6 +255,18 @@ func (r *OrganizationMemberResource) ImportState(ctx context.Context, req resour
 // ============================================================================
 // Helper functions
 // ============================================================================
+
+func (r *OrganizationMemberResource) getMember(ctx context.Context, id string) (organizationMemberAPIResponse, error) {
+	var member organizationMemberAPIResponse
+	body, err := r.client.DoRequest(ctx, "GET", "/v1/organizations/users/"+id, nil)
+	if err != nil {
+		return member, err
+	}
+	if err := json.Unmarshal(body, &member); err != nil {
+		return member, fmt.Errorf("unable to parse organization member response: %w", err)
+	}
+	return member, nil
+}
 
 // mapOrganizationMemberToResourceState maps an API User response to the
 // resource's Terraform state model.
