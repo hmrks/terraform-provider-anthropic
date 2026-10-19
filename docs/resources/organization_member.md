@@ -18,13 +18,16 @@ Requires `admin_api_key` (or the `ANTHROPIC_ADMIN_API_KEY` environment variable)
 > **Beta header**: None.
 > **Cost**: Free.
 
-> **Note on deletion:** Deleting this resource removes the member from the organization. This is **irreversible** — unlike other Admin API resources, there is no archive/deactivate alternative for organization membership.
+> **Destroy protection:** `remove_on_destroy` defaults to `false`. Removing this resource from configuration and applying, or running `terraform destroy`, fails unless this setting has been enabled and applied. A blocked destroy does not remove the membership or the resource from Terraform state.
+
+> **Warning:** With `remove_on_destroy = true`, destroy removes the user's organization membership. This is **irreversible**; there is no archive or deactivate alternative. Apply the setting before removing the resource block or running `terraform destroy`: destroy uses the value stored in state, not unapplied configuration changes.
 
 ## Example Usage
 
 ```hcl
 # The user must already be a member of the organization. Terraform adopts the
-# existing member by ID and updates the role if it differs from this config.
+# existing member by ID only when their current role matches this config.
+# Destroy fails unless remove_on_destroy is enabled and applied first.
 resource "anthropic_organization_member" "example" {
   id   = "user_01ABCDEFGHIJKLMNOPQRSTUVWX"
   role = "developer"
@@ -50,6 +53,10 @@ output "organization_member_email" {
 
 - `id` (String) The ID of the existing organization member to manage. Also used as the import ID.
 - `role` (String) Organization role of the user. The valid set depends on the organization's type: Console organizations use `user`, `developer`, `billing`, `admin`, `claude_code_user`; Enterprise organizations use `user`, `managed`, `owner`, `membership_admin`, `primary_owner` (though the API currently only assigns `user`/`managed` via this endpoint). Not validated against a fixed list here since the valid set is organization-type-dependent; an invalid value is rejected by the API at apply time.
+
+### Optional
+
+- `remove_on_destroy` (Boolean) If `true`, destroying this resource irreversibly removes the user's organization membership. If `false`, destroy fails and the resource remains in Terraform state. There is no archive or deactivate alternative. Default: `false`. Set this to `true` and apply before destroying the resource.
 
 ### Read-Only
 

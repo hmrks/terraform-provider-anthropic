@@ -20,6 +20,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/tfsdk"
+	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-plugin-go/tftypes"
 	"github.com/ippontech/terraform-provider-anthropic/internal/admintest"
 	"github.com/ippontech/terraform-provider-anthropic/internal/schematest"
@@ -304,43 +305,117 @@ func TestOrganizationMemberResource_Update(t *testing.T) {
 	}
 }
 
+func TestOrganizationMemberResource_RemoveOnDestroySurvivesLifecycle(t *testing.T) {
+	for _, value := range []types.Bool{types.BoolValue(true), types.BoolValue(false), types.BoolNull()} {
+		for _, operation := range []string{"create", "read", "update"} {
+			t.Run(operation+"/"+value.String(), func(t *testing.T) {
+				srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+					w.Header().Set("content-type", "application/json")
+					_, _ = io.WriteString(w, organizationMemberResourceFixture)
+				}))
+				defer srv.Close()
+				member := &OrganizationMemberResource{client: admintest.NewClient(t, srv)}
+				ctx := context.Background()
+				state := schematest.NullState(t, member)
+				data := mapOrganizationMemberToResourceState(organizationMemberAPIResponse{
+					ID: "user_01WCz1FkmYMm4gnmykNKUu3Q", Role: "developer",
+				}, value)
+				data.RemoveOnDestroy = value
+				if diags := state.Set(ctx, data); diags.HasError() {
+					t.Fatalf("State.Set: %v", diags)
+				}
+				plan := tfsdk.Plan(state)
+				switch operation {
+				case "create":
+					resp := resource.CreateResponse{State: state}
+					member.Create(ctx, resource.CreateRequest{Plan: plan}, &resp)
+					if resp.Diagnostics.HasError() {
+						t.Fatalf("Create: %v", resp.Diagnostics)
+					}
+					state = resp.State
+				case "read":
+					resp := resource.ReadResponse{State: state}
+					member.Read(ctx, resource.ReadRequest{State: state}, &resp)
+					if resp.Diagnostics.HasError() {
+						t.Fatalf("Read: %v", resp.Diagnostics)
+					}
+					state = resp.State
+				case "update":
+					resp := resource.UpdateResponse{State: state}
+					member.Update(ctx, resource.UpdateRequest{Plan: plan, State: state}, &resp)
+					if resp.Diagnostics.HasError() {
+						t.Fatalf("Update: %v", resp.Diagnostics)
+					}
+					state = resp.State
+				}
+				var got types.Bool
+				if diags := state.GetAttribute(ctx, path.Root("remove_on_destroy"), &got); diags.HasError() {
+					t.Fatalf("State.GetAttribute: %v", diags)
+				}
+				if !got.Equal(types.BoolValue(value.ValueBool())) {
+					t.Errorf("remove_on_destroy = %v, want %v", got, value.ValueBool())
+				}
+			})
+		}
+	}
+}
+
 // --- Delete ---
 
 func TestOrganizationMemberResource_Delete(t *testing.T) {
 	t.Parallel()
 
-	var gotMethod, gotPath string
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		gotMethod = req.Method
-		gotPath = req.URL.Path
-		w.Header().Set("content-type", "application/json")
-		_, _ = io.WriteString(w, `{}`)
-	}))
-	defer srv.Close()
+	for _, test := range []struct {
+		name            string
+		removeOnDestroy any
+		responseCode    int
+		wantRequests    int
+		wantError       bool
+	}{
+		{name: "disabled", removeOnDestroy: false, responseCode: http.StatusNoContent, wantError: true},
+		{name: "null", removeOnDestroy: nil, responseCode: http.StatusNoContent, wantError: true},
+		{name: "unknown", removeOnDestroy: tftypes.UnknownValue, responseCode: http.StatusNoContent, wantError: true},
+		{name: "enabled", removeOnDestroy: true, responseCode: http.StatusNoContent, wantRequests: 1},
+		{name: "already gone", removeOnDestroy: true, responseCode: http.StatusNotFound, wantRequests: 1},
+		{name: "forbidden", removeOnDestroy: true, responseCode: http.StatusForbidden, wantRequests: 1, wantError: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			var requests int
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+				requests++
+				if req.Method != http.MethodDelete || req.URL.Path != "/v1/organizations/users/user_01WCz1FkmYMm4gnmykNKUu3Q" {
+					t.Errorf("unexpected request: %s %s", req.Method, req.URL)
+				}
+				w.WriteHeader(test.responseCode)
+			}))
+			defer srv.Close()
 
-	r := &OrganizationMemberResource{client: admintest.NewClient(t, srv)}
-
-	schema := schematest.ResourceSchema(t, r)
-	objType := schematest.ResourceObjectType(t, r)
-	vals := schematest.NullValues(t, r)
-	vals["id"] = tftypes.NewValue(objType.AttributeTypes["id"], "user_01WCz1FkmYMm4gnmykNKUu3Q")
-
-	state := tfsdk.State{
-		Raw:    tftypes.NewValue(objType, vals),
-		Schema: schema,
-	}
-
-	var resp resource.DeleteResponse
-	r.Delete(context.Background(), resource.DeleteRequest{State: state}, &resp)
-	if resp.Diagnostics.HasError() {
-		t.Fatalf("Delete returned errors: %v", resp.Diagnostics)
-	}
-
-	if gotMethod != http.MethodDelete {
-		t.Errorf("expected DELETE, got %s", gotMethod)
-	}
-	if gotPath != "/v1/organizations/users/user_01WCz1FkmYMm4gnmykNKUu3Q" {
-		t.Errorf("expected users delete path, got %s", gotPath)
+			member := &OrganizationMemberResource{client: admintest.NewClient(t, srv)}
+			objType := schematest.ResourceObjectType(t, member)
+			vals := schematest.NullValues(t, member)
+			vals["id"] = tftypes.NewValue(objType.AttributeTypes["id"], "user_01WCz1FkmYMm4gnmykNKUu3Q")
+			vals["remove_on_destroy"] = tftypes.NewValue(objType.AttributeTypes["remove_on_destroy"], test.removeOnDestroy)
+			state := tfsdk.State{Raw: tftypes.NewValue(objType, vals), Schema: schematest.ResourceSchema(t, member)}
+			resp := resource.DeleteResponse{State: state}
+			member.Delete(context.Background(), resource.DeleteRequest{State: state}, &resp)
+			if resp.Diagnostics.HasError() != test.wantError {
+				t.Fatalf("Delete diagnostics = %v, wantError = %v", resp.Diagnostics, test.wantError)
+			}
+			if test.wantRequests == 0 {
+				if got := resp.Diagnostics[0].Summary(); got != "Organization Member Removal Disabled" {
+					t.Errorf("diagnostic summary = %q, want Organization Member Removal Disabled", got)
+				}
+				if !strings.Contains(resp.Diagnostics[0].Detail(), "remove_on_destroy = true") || !strings.Contains(resp.Diagnostics[0].Detail(), "terraform apply") {
+					t.Errorf("diagnostic lacks enable-and-apply guidance: %s", resp.Diagnostics[0].Detail())
+				}
+				if !resp.State.Raw.Equal(state.Raw) {
+					t.Fatal("blocked destroy must preserve state")
+				}
+			}
+			if requests != test.wantRequests {
+				t.Errorf("requests = %d, want %d", requests, test.wantRequests)
+			}
+		})
 	}
 }
 
@@ -378,7 +453,7 @@ func TestMapOrganizationMemberToResourceState(t *testing.T) {
 		t.Fatalf("failed to unmarshal fixture: %s", err)
 	}
 
-	data := mapOrganizationMemberToResourceState(member)
+	data := mapOrganizationMemberToResourceState(member, types.BoolValue(false))
 
 	if data.ID.ValueString() != "user_01WCz1FkmYMm4gnmykNKUu3Q" {
 		t.Errorf("expected id to be mapped, got %s", data.ID.ValueString())
@@ -397,5 +472,16 @@ func TestMapOrganizationMemberToResourceState(t *testing.T) {
 	}
 	if data.Type.ValueString() != "user" {
 		t.Errorf("expected type to be mapped, got %s", data.Type.ValueString())
+	}
+}
+
+func TestMapOrganizationMemberToResourceState_RemoveOnDestroy(t *testing.T) {
+	for _, value := range []types.Bool{types.BoolValue(true), types.BoolValue(false), types.BoolNull(), types.BoolUnknown()} {
+		t.Run(value.String(), func(t *testing.T) {
+			data := mapOrganizationMemberToResourceState(organizationMemberAPIResponse{}, value)
+			if data.RemoveOnDestroy.IsNull() || data.RemoveOnDestroy.IsUnknown() || data.RemoveOnDestroy.ValueBool() != value.ValueBool() {
+				t.Errorf("remove_on_destroy = %v, want %v", data.RemoveOnDestroy, value.ValueBool())
+			}
+		})
 	}
 }
