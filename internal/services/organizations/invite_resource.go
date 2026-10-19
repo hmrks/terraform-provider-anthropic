@@ -228,6 +228,10 @@ func (r *InviteResource) Delete(ctx context.Context, req resource.DeleteRequest,
 		return
 	}
 
+	if !data.Status.IsNull() && !data.Status.IsUnknown() && data.Status.ValueString() != "pending" {
+		return
+	}
+
 	_, err := r.adminClient.DoRequest(ctx, "DELETE", "/v1/organizations/invites/"+data.ID.ValueString()+"?beta=true", nil)
 	if err != nil {
 		if admin.IsNotFound(err) {
