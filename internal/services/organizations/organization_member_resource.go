@@ -156,7 +156,7 @@ func (r *OrganizationMemberResource) Create(ctx context.Context, req resource.Cr
 			)
 			return
 		}
-		resp.Diagnostics.AddError("Client Error", fmt.Sprintf("Unable to find organization member: %s", err))
+		resp.Diagnostics.AddError("Client Error", fmt.Sprintf("Unable to read organization member: %s", err))
 		return
 	}
 

@@ -256,6 +256,8 @@ func TestOrganizationMemberResource_GetMemberErrors(t *testing.T) {
 	}{
 		{name: "malformed response", responseCode: http.StatusOK, body: `{`, wantDetail: "unable to parse organization member response"},
 		{name: "forbidden", responseCode: http.StatusForbidden, body: `{"error":{"message":"access denied"}}`, wantDetail: "access denied"},
+		{name: "revoked key", responseCode: http.StatusUnauthorized, body: `{"error":{"message":"invalid key"}}`, wantDetail: "invalid key"},
+		{name: "server error", responseCode: http.StatusInternalServerError, body: `{"error":{"message":"server unavailable"}}`, wantDetail: "server unavailable"},
 	} {
 		for _, operation := range []string{"create", "read"} {
 			t.Run(operation+"/"+test.name, func(t *testing.T) {
@@ -274,7 +276,7 @@ func TestOrganizationMemberResource_GetMemberErrors(t *testing.T) {
 				if operation == "create" {
 					resp := resource.CreateResponse{State: tfsdk.State{Raw: tftypes.NewValue(schematest.ResourceObjectType(t, member), nil), Schema: state.Schema}}
 					member.Create(ctx, resource.CreateRequest{Plan: tfsdk.Plan(state)}, &resp)
-					if !resp.Diagnostics.HasError() || !strings.Contains(resp.Diagnostics[0].Detail(), test.wantDetail) {
+					if !resp.Diagnostics.HasError() || !strings.HasPrefix(resp.Diagnostics[0].Detail(), "Unable to read organization member: ") || !strings.Contains(resp.Diagnostics[0].Detail(), test.wantDetail) {
 						t.Fatalf("expected %q error, got %v", test.wantDetail, resp.Diagnostics)
 					}
 					if !resp.State.Raw.IsNull() {
@@ -283,7 +285,7 @@ func TestOrganizationMemberResource_GetMemberErrors(t *testing.T) {
 				} else {
 					resp := resource.ReadResponse{State: state}
 					member.Read(ctx, resource.ReadRequest{State: state}, &resp)
-					if !resp.Diagnostics.HasError() || !strings.Contains(resp.Diagnostics[0].Detail(), test.wantDetail) {
+					if !resp.Diagnostics.HasError() || !strings.HasPrefix(resp.Diagnostics[0].Detail(), "Unable to read organization member: ") || !strings.Contains(resp.Diagnostics[0].Detail(), test.wantDetail) {
 						t.Fatalf("expected %q error, got %v", test.wantDetail, resp.Diagnostics)
 					}
 					if !resp.State.Raw.Equal(state.Raw) {
