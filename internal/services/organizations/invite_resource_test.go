@@ -115,26 +115,52 @@ func TestInviteRead_preservesStateForEveryReturnedStatus(t *testing.T) {
 	}
 }
 
-func TestInviteDelete_callsExpectedEndpoint(t *testing.T) {
-	var gotMethod, gotPath string
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		gotMethod = r.Method
-		gotPath = r.URL.Path
-		w.WriteHeader(http.StatusNoContent)
-	}))
-	defer srv.Close()
+func TestInviteDelete(t *testing.T) {
+	for _, test := range []struct {
+		name         string
+		status       any
+		responseCode int
+		wantRequests int
+		wantError    bool
+	}{
+		{name: "pending", status: "pending", responseCode: http.StatusNoContent, wantRequests: 1},
+		{name: "already gone", status: "pending", responseCode: http.StatusNotFound, wantRequests: 1},
+		{name: "bad request", status: "pending", responseCode: http.StatusBadRequest, wantRequests: 1, wantError: true},
+		{name: "conflict", status: "pending", responseCode: http.StatusConflict, wantRequests: 1, wantError: true},
+		{name: "accepted", status: "accepted", responseCode: http.StatusBadRequest},
+		{name: "expired", status: "expired", responseCode: http.StatusConflict},
+		{name: "deleted", status: "deleted", responseCode: http.StatusNotFound},
+		{name: "null status", status: nil, responseCode: http.StatusNoContent, wantRequests: 1},
+		{name: "unknown status", status: tftypes.UnknownValue, responseCode: http.StatusNoContent, wantRequests: 1},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			var requests int
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+				requests++
+				if req.Method != http.MethodDelete || req.URL.Path != "/v1/organizations/invites/invite_01ABC" || req.URL.RawQuery != "beta=true" {
+					t.Errorf("unexpected request: %s %s", req.Method, req.URL)
+				}
+				w.WriteHeader(test.responseCode)
+			}))
+			defer srv.Close()
 
-	client := admintest.NewClient(t, srv)
-	_, err := client.DoRequest(context.Background(), "DELETE", "/v1/organizations/invites/invite_01ABC", nil)
-	if err != nil {
-		t.Fatalf("delete: %v", err)
-	}
+			invite := &InviteResource{adminClient: admintest.NewClient(t, srv)}
+			state := schematest.NullState(t, invite)
+			objType := schematest.ResourceObjectType(t, invite)
+			vals := schematest.NullValues(t, invite)
+			vals["id"] = tftypes.NewValue(objType.AttributeTypes["id"], "invite_01ABC")
+			vals["status"] = tftypes.NewValue(objType.AttributeTypes["status"], test.status)
+			state.Raw = tftypes.NewValue(objType, vals)
 
-	if gotMethod != "DELETE" {
-		t.Errorf("method = %q, want DELETE", gotMethod)
-	}
-	if gotPath != "/v1/organizations/invites/invite_01ABC" {
-		t.Errorf("path = %q, want /v1/organizations/invites/invite_01ABC", gotPath)
+			resp := resource.DeleteResponse{State: state}
+			invite.Delete(context.Background(), resource.DeleteRequest{State: state}, &resp)
+			if resp.Diagnostics.HasError() != test.wantError {
+				t.Fatalf("Delete diagnostics = %v, wantError = %v", resp.Diagnostics, test.wantError)
+			}
+			if requests != test.wantRequests {
+				t.Errorf("requests = %d, want %d", requests, test.wantRequests)
+			}
+		})
 	}
 }
 
