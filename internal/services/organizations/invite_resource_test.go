@@ -79,11 +79,27 @@ func TestInviteCreate_mapsResponseToState(t *testing.T) {
 }
 
 func TestInviteRead_handlesReturnedStatus(t *testing.T) {
-	for _, status := range []string{"pending", "accepted", "expired", "deleted"} {
-		t.Run(status, func(t *testing.T) {
+	for _, test := range []struct {
+		name         string
+		status       string
+		responseCode int
+		wantGone     bool
+	}{
+		{name: "pending", status: "pending", responseCode: http.StatusOK},
+		{name: "accepted", status: "accepted", responseCode: http.StatusOK},
+		{name: "expired", status: "expired", responseCode: http.StatusOK},
+		{name: "deleted", status: "deleted", responseCode: http.StatusOK, wantGone: true},
+		{name: "not found", responseCode: http.StatusNotFound, wantGone: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
 			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				w.WriteHeader(http.StatusOK)
-				_, _ = io.WriteString(w, inviteFixture(status))
+				if r.Method != http.MethodGet || r.URL.Path != "/v1/organizations/invites/invite_01ABC" || r.URL.RawQuery != "beta=true" {
+					t.Errorf("unexpected request: %s %s", r.Method, r.URL)
+				}
+				w.WriteHeader(test.responseCode)
+				if test.responseCode == http.StatusOK {
+					_, _ = io.WriteString(w, inviteFixture(test.status))
+				}
 			}))
 			defer srv.Close()
 
@@ -94,15 +110,14 @@ func TestInviteRead_handlesReturnedStatus(t *testing.T) {
 			vals["id"] = tftypes.NewValue(objType.AttributeTypes["id"], "invite_01ABC")
 			state := tfsdk.State{Raw: tftypes.NewValue(objType, vals), Schema: schema}
 
-			var resp resource.ReadResponse
-			resp.State = tfsdk.State{Schema: schema}
+			resp := resource.ReadResponse{State: state}
 			r.Read(context.Background(), resource.ReadRequest{State: state}, &resp)
 			if resp.Diagnostics.HasError() {
 				t.Fatalf("Read returned errors: %v", resp.Diagnostics)
 			}
-			if status == "deleted" {
+			if test.wantGone {
 				if !resp.State.Raw.IsNull() {
-					t.Fatal("expected deleted invite to be removed from state")
+					t.Fatal("expected invite to be removed from state")
 				}
 				return
 			}
@@ -114,8 +129,8 @@ func TestInviteRead_handlesReturnedStatus(t *testing.T) {
 			if diags := resp.State.Get(context.Background(), &got); diags.HasError() {
 				t.Fatalf("failed to read state: %v", diags)
 			}
-			if got.Status.ValueString() != status {
-				t.Errorf("Status = %q, want %q", got.Status.ValueString(), status)
+			if got.Status.ValueString() != test.status {
+				t.Errorf("Status = %q, want %q", got.Status.ValueString(), test.status)
 			}
 		})
 	}
