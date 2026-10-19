@@ -79,29 +79,25 @@ func TestOrganizationMemberResource_CreateAdoptsExistingMember(t *testing.T) {
 	if len(gotMethods) != 1 || gotMethods[0] != http.MethodGet {
 		t.Errorf("methods = %v, want only GET", gotMethods)
 	}
+	if resp.Diagnostics.WarningsCount() != 0 {
+		t.Errorf("unexpected adoption warnings: %v", resp.Diagnostics)
+	}
 }
 
-func TestOrganizationMemberResource_CreateUpdatesRoleWhenAdopting(t *testing.T) {
+func TestOrganizationMemberResource_CreateRejectsRoleMismatch(t *testing.T) {
 	t.Parallel()
 
 	var gotMethods []string
-	var gotRole string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		gotMethods = append(gotMethods, req.Method)
 		if req.URL.Path != "/v1/organizations/users/user_01WCz1FkmYMm4gnmykNKUu3Q" {
 			t.Errorf("unexpected path: %s", req.URL.Path)
 		}
+		if req.Method != http.MethodGet {
+			t.Errorf("unexpected method: %s", req.Method)
+		}
 		w.Header().Set("content-type", "application/json")
-		if req.Method == http.MethodGet {
-			_, _ = io.WriteString(w, organizationMemberResourceFixture)
-			return
-		}
-		var body organizationMemberUpdateRequest
-		if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
-			t.Errorf("failed to decode update request: %v", err)
-		}
-		gotRole = body.Role
-		_, _ = io.WriteString(w, strings.Replace(organizationMemberResourceFixture, `"role": "developer"`, `"role": "user"`, 1))
+		_, _ = io.WriteString(w, organizationMemberResourceFixture)
 	}))
 	defer srv.Close()
 
@@ -113,24 +109,24 @@ func TestOrganizationMemberResource_CreateUpdatesRoleWhenAdopting(t *testing.T) 
 	vals["role"] = tftypes.NewValue(objType.AttributeTypes["role"], "user")
 	plan := tfsdk.Plan{Raw: tftypes.NewValue(objType, vals), Schema: schema}
 
-	var resp resource.CreateResponse
-	resp.State = tfsdk.State{Schema: schema}
+	resp := resource.CreateResponse{State: tfsdk.State{Raw: tftypes.NewValue(objType, nil), Schema: schema}}
 	r.Create(context.Background(), resource.CreateRequest{Plan: plan}, &resp)
-	if resp.Diagnostics.HasError() {
-		t.Fatalf("Create returned errors: %v", resp.Diagnostics)
+	if resp.Diagnostics.ErrorsCount() != 1 {
+		t.Fatalf("expected one role-mismatch error, got: %v", resp.Diagnostics)
 	}
-	if len(gotMethods) != 2 || gotMethods[0] != http.MethodGet || gotMethods[1] != http.MethodPost {
-		t.Errorf("methods = %v, want GET then POST", gotMethods)
+	if got := resp.Diagnostics[0].Summary(); got != "Organization Member Role Mismatch" {
+		t.Errorf("error summary = %q, want Organization Member Role Mismatch", got)
 	}
-	if gotRole != "user" {
-		t.Errorf("updated role = %q, want user", gotRole)
+	for _, detail := range []string{"user_01WCz1FkmYMm4gnmykNKUu3Q", `has role "developer"`, `configured role is "user"`, "terraform import", "terraform plan"} {
+		if !strings.Contains(resp.Diagnostics[0].Detail(), detail) {
+			t.Errorf("error detail = %q, want it to contain %q", resp.Diagnostics[0].Detail(), detail)
+		}
 	}
-	var data OrganizationMemberResourceModel
-	if diags := resp.State.Get(context.Background(), &data); diags.HasError() {
-		t.Fatalf("failed to read created state: %v", diags)
+	if len(gotMethods) != 1 || gotMethods[0] != http.MethodGet {
+		t.Errorf("methods = %v, want only GET", gotMethods)
 	}
-	if data.Role.ValueString() != "user" {
-		t.Errorf("state role = %q, want user", data.Role.ValueString())
+	if !resp.State.Raw.IsNull() {
+		t.Fatal("expected rejected adoption to leave state null")
 	}
 }
 
