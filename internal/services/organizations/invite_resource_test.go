@@ -78,7 +78,7 @@ func TestInviteCreate_mapsResponseToState(t *testing.T) {
 	}
 }
 
-func TestInviteRead_preservesStateForEveryReturnedStatus(t *testing.T) {
+func TestInviteRead_handlesReturnedStatus(t *testing.T) {
 	for _, status := range []string{"pending", "accepted", "expired", "deleted"} {
 		t.Run(status, func(t *testing.T) {
 			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -99,6 +99,12 @@ func TestInviteRead_preservesStateForEveryReturnedStatus(t *testing.T) {
 			r.Read(context.Background(), resource.ReadRequest{State: state}, &resp)
 			if resp.Diagnostics.HasError() {
 				t.Fatalf("Read returned errors: %v", resp.Diagnostics)
+			}
+			if status == "deleted" {
+				if !resp.State.Raw.IsNull() {
+					t.Fatal("expected deleted invite to be removed from state")
+				}
+				return
 			}
 			if resp.State.Raw.IsNull() {
 				t.Fatal("expected invite to remain in state")

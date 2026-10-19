@@ -207,6 +207,11 @@ func (r *InviteResource) Read(ctx context.Context, req resource.ReadRequest, res
 		return
 	}
 
+	if inv.Status == "deleted" {
+		resp.State.RemoveResource(ctx)
+		return
+	}
+
 	mapInviteToState(&inv, &data)
 
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
