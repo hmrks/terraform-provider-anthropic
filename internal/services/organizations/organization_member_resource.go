@@ -58,6 +58,7 @@ func (r *OrganizationMemberResource) Schema(_ context.Context, _ resource.Schema
 	resp.Schema = schema.Schema{
 		MarkdownDescription: "Manages an existing organization member (User) via the Admin API. " +
 			"Creating this resource looks up the configured user ID and adopts that existing member; it does not create organization membership. " +
+			"Adoption requires the configured role to match the member's current role; otherwise, import the member first to review the role change as an update. " +
 			"Membership must first be created by inviting a user (via `anthropic_invite` or the Anthropic Console) and having them accept. " +
 			"This resource supports changing a member's organization role and removing them from the organization. " +
 			"Requires `admin_api_key` (or `ANTHROPIC_ADMIN_API_KEY`) to be configured on the provider.",
@@ -155,17 +156,11 @@ func (r *OrganizationMemberResource) Create(ctx context.Context, req resource.Cr
 	}
 
 	if member.Role != plan.Role.ValueString() {
-		respBytes, err = r.client.DoRequest(ctx, "POST", "/v1/organizations/users/"+userID, organizationMemberUpdateRequest{
-			Role: plan.Role.ValueString(),
-		})
-		if err != nil {
-			resp.Diagnostics.AddError("Client Error", fmt.Sprintf("Unable to update organization member role: %s", err))
-			return
-		}
-		if err := json.Unmarshal(respBytes, &member); err != nil {
-			resp.Diagnostics.AddError("Parse Error", fmt.Sprintf("Unable to parse updated organization member response: %s", err))
-			return
-		}
+		resp.Diagnostics.AddError(
+			"Organization Member Role Mismatch",
+			fmt.Sprintf("Organization member %q has role %q, but the configured role is %q. Adoption cannot change an existing member's role. Import the member with terraform import <resource_address> %s, then run terraform plan to review the role change as an update before applying.", userID, member.Role, plan.Role.ValueString(), userID),
+		)
+		return
 	}
 
 	resp.Diagnostics.Append(resp.State.Set(ctx, mapOrganizationMemberToResourceState(member))...)
