@@ -71,6 +71,84 @@ func TestAccAgentResource_basic(t *testing.T) {
 	})
 }
 
+func TestAccAgentResource_modelEffort(t *testing.T) {
+	resource.Test(t, resource.TestCase{
+		PreCheck:                 func() { acctest.PreCheck(t) },
+		ProtoV6ProviderFactories: acctest.ProtoV6ProviderFactories,
+		CheckDestroy:             testAccCheckAgentDestroyed,
+		Steps: []resource.TestStep{
+			// Omitted: the API resolves a per-model default and it lands in state.
+			{
+				Config: testAccAgentResourceEffortConfig(""),
+				Check:  resource.TestCheckResourceAttrSet("anthropic_agent.test", "model_effort"),
+			},
+			// Explicit value.
+			{
+				Config: testAccAgentResourceEffortConfig(`model_effort = "high"`),
+				Check:  resource.TestCheckResourceAttr("anthropic_agent.test", "model_effort", "high"),
+			},
+			// Update.
+			{
+				Config: testAccAgentResourceEffortConfig(`model_effort = "low"`),
+				Check:  resource.TestCheckResourceAttr("anthropic_agent.test", "model_effort", "low"),
+			},
+			// Removing the attribute keeps the last value (Optional+Computed).
+			{
+				Config: testAccAgentResourceEffortConfig(""),
+				Check:  resource.TestCheckResourceAttr("anthropic_agent.test", "model_effort", "low"),
+			},
+			// Changing model without model_effort resolves the new default.
+			{
+				Config: testAccAgentResourceEffortConfigModel("claude-opus-4-5", ""),
+				Check:  resource.TestCheckResourceAttrSet("anthropic_agent.test", "model_effort"),
+			},
+			{
+				ResourceName:      "anthropic_agent.test",
+				ImportState:       true,
+				ImportStateVerify: true,
+			},
+		},
+	})
+}
+
+func TestAccAgentResource_modelInferenceGeo(t *testing.T) {
+	resource.Test(t, resource.TestCase{
+		PreCheck:                 func() { acctest.PreCheck(t) },
+		ProtoV6ProviderFactories: acctest.ProtoV6ProviderFactories,
+		CheckDestroy:             testAccCheckAgentDestroyed,
+		Steps: []resource.TestStep{
+			{
+				Config: testAccAgentResourceEffortConfig(`model_inference_geo = "us"`),
+				Check:  resource.TestCheckResourceAttr("anthropic_agent.test", "model_inference_geo", "us"),
+			},
+			{
+				ResourceName:      "anthropic_agent.test",
+				ImportState:       true,
+				ImportStateVerify: true,
+			},
+			// Removing the attribute clears the pin (whole-object model update).
+			{
+				Config: testAccAgentResourceEffortConfig(""),
+				Check:  resource.TestCheckNoResourceAttr("anthropic_agent.test", "model_inference_geo"),
+			},
+		},
+	})
+}
+
+func testAccAgentResourceEffortConfig(extra string) string {
+	return testAccAgentResourceEffortConfigModel("claude-sonnet-4-6", extra)
+}
+
+func testAccAgentResourceEffortConfigModel(model, extra string) string {
+	return fmt.Sprintf(`
+resource "anthropic_agent" "test" {
+  model = %q
+  name  = "tf-acc-test-effort"
+  %s
+}
+`, model, extra)
+}
+
 func TestAccAgentResource_withSystemAndDescription(t *testing.T) {
 	resource.Test(t, resource.TestCase{
 		PreCheck:                 func() { acctest.PreCheck(t) },
@@ -250,3 +328,143 @@ resource "anthropic_agent" "test_skills" {
   ]
 }
 `
+
+func TestAccAgentResource_multiagent(t *testing.T) {
+	const coord = "anthropic_agent.coordinator"
+	resource.Test(t, resource.TestCase{
+		PreCheck:                 func() { acctest.PreCheck(t) },
+		ProtoV6ProviderFactories: acctest.ProtoV6ProviderFactories,
+		CheckDestroy:             testAccCheckAgentDestroyed,
+		Steps: []resource.TestStep{
+			// Create: a member agent plus self.
+			{
+				Config: testAccAgentResourceMultiagentConfig("a", "self_last"),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr(coord, "multiagent.type", "coordinator"),
+					resource.TestCheckResourceAttr(coord, "multiagent.agents.#", "2"),
+					resource.TestCheckResourceAttr(coord, "multiagent.agents.0.type", "agent"),
+					resource.TestCheckResourceAttrPair(coord, "multiagent.agents.0.id", "anthropic_agent.member_a", "id"),
+					resource.TestCheckResourceAttrSet(coord, "multiagent.agents.0.version"),
+					resource.TestCheckResourceAttr(coord, "multiagent.agents.1.type", "self"),
+				),
+			},
+			// Import: a self entry cannot be told apart from an explicit reference
+			// without configuration, so the roster is not compared.
+			{
+				ResourceName:            coord,
+				ImportState:             true,
+				ImportStateVerify:       true,
+				ImportStateVerifyIgnore: []string{"multiagent"},
+			},
+			// Update: reorder (self first) and swap the member; correlation is by key.
+			{
+				Config: testAccAgentResourceMultiagentConfig("b", "self_first"),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr(coord, "multiagent.agents.#", "2"),
+					resource.TestCheckResourceAttr(coord, "multiagent.agents.0.type", "self"),
+					resource.TestCheckResourceAttr(coord, "multiagent.agents.1.type", "agent"),
+					resource.TestCheckResourceAttrPair(coord, "multiagent.agents.1.id", "anthropic_agent.member_b", "id"),
+				),
+			},
+			// Remove the block: sends multiagent null.
+			{
+				Config: testAccAgentResourceMultiagentConfig("b", "none"),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckNoResourceAttr(coord, "multiagent.type"),
+					resource.TestCheckNoResourceAttr(coord, "multiagent.agents.#"),
+				),
+			},
+		},
+	})
+}
+
+func testAccAgentResourceMultiagentConfig(member, layout string) string {
+	var block string
+	switch layout {
+	case "self_last":
+		block = fmt.Sprintf(`
+  multiagent = {
+    type = "coordinator"
+    agents = [
+      { type = "agent", id = anthropic_agent.member_%s.id },
+      { type = "self" },
+    ]
+  }`, member)
+	case "self_first":
+		block = fmt.Sprintf(`
+  multiagent = {
+    type = "coordinator"
+    agents = [
+      { type = "self" },
+      { type = "agent", id = anthropic_agent.member_%s.id },
+    ]
+  }`, member)
+	}
+	return fmt.Sprintf(`
+resource "anthropic_agent" "member_a" {
+  model = "claude-sonnet-4-6"
+  name  = "tf-acc-test-multiagent-member-a"
+}
+
+resource "anthropic_agent" "member_b" {
+  model = "claude-sonnet-4-6"
+  name  = "tf-acc-test-multiagent-member-b"
+}
+
+resource "anthropic_agent" "coordinator" {
+  model = "claude-sonnet-4-6"
+  name  = "tf-acc-test-multiagent-coordinator"
+%s
+}
+`, block)
+}
+
+// An unrelated update of the coordinator must not re-pin an unpinned member to the
+// member's newer version.
+func TestAccAgentResource_multiagentKeepsPinnedVersion(t *testing.T) {
+	const coord = "anthropic_agent.coordinator"
+	cfg := func(memberDesc, coordDesc string) string {
+		return fmt.Sprintf(`
+resource "anthropic_agent" "member" {
+  model       = "claude-sonnet-4-6"
+  name        = "tf-acc-test-multiagent-pin-member"
+  description = %q
+}
+
+resource "anthropic_agent" "coordinator" {
+  model       = "claude-sonnet-4-6"
+  name        = "tf-acc-test-multiagent-pin-coordinator"
+  description = %q
+
+  multiagent = {
+    type   = "coordinator"
+    agents = [{ type = "agent", id = anthropic_agent.member.id }]
+  }
+}
+`, memberDesc, coordDesc)
+	}
+	resource.Test(t, resource.TestCase{
+		PreCheck:                 func() { acctest.PreCheck(t) },
+		ProtoV6ProviderFactories: acctest.ProtoV6ProviderFactories,
+		CheckDestroy:             testAccCheckAgentDestroyed,
+		Steps: []resource.TestStep{
+			{
+				Config: cfg("v1", "c1"),
+				Check:  resource.TestCheckResourceAttr(coord, "multiagent.agents.0.version", "1"),
+			},
+			// Bump the member to version 2; the coordinator is untouched.
+			{
+				Config: cfg("v2", "c1"),
+				Check:  resource.TestCheckResourceAttr("anthropic_agent.member", "version", "2"),
+			},
+			// Edit only the coordinator: the roster must keep the member at version 1.
+			{
+				Config: cfg("v2", "c2"),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr(coord, "description", "c2"),
+					resource.TestCheckResourceAttr(coord, "multiagent.agents.0.version", "1"),
+				),
+			},
+		},
+	})
+}

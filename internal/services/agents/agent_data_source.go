@@ -33,23 +33,26 @@ type AgentDataSource struct {
 
 // AgentDataSourceModel describes the data source data model.
 type AgentDataSourceModel struct {
-	AgentID      types.String `tfsdk:"agent_id"`
-	ID           types.String `tfsdk:"id"`
-	Name         types.String `tfsdk:"name"`
-	Model        types.String `tfsdk:"model"`
-	ModelSpeed   types.String `tfsdk:"model_speed"`
-	Description  types.String `tfsdk:"description"`
-	System       types.String `tfsdk:"system"`
-	Metadata     types.Map    `tfsdk:"metadata"`
-	MCPServers   types.List   `tfsdk:"mcp_servers"`
-	Skills       types.List   `tfsdk:"skills"`
-	AgentToolset types.Object `tfsdk:"agent_toolset"`
-	MCPToolsets  types.List   `tfsdk:"mcp_toolsets"`
-	CustomTools  types.List   `tfsdk:"custom_tools"`
-	Version      types.Int64  `tfsdk:"version"`
-	CreatedAt    types.String `tfsdk:"created_at"`
-	UpdatedAt    types.String `tfsdk:"updated_at"`
-	ArchivedAt   types.String `tfsdk:"archived_at"`
+	AgentID           types.String `tfsdk:"agent_id"`
+	ID                types.String `tfsdk:"id"`
+	Name              types.String `tfsdk:"name"`
+	Model             types.String `tfsdk:"model"`
+	ModelSpeed        types.String `tfsdk:"model_speed"`
+	ModelEffort       types.String `tfsdk:"model_effort"`
+	ModelInferenceGeo types.String `tfsdk:"model_inference_geo"`
+	Description       types.String `tfsdk:"description"`
+	System            types.String `tfsdk:"system"`
+	Metadata          types.Map    `tfsdk:"metadata"`
+	MCPServers        types.List   `tfsdk:"mcp_servers"`
+	Skills            types.List   `tfsdk:"skills"`
+	AgentToolset      types.Object `tfsdk:"agent_toolset"`
+	MCPToolsets       types.List   `tfsdk:"mcp_toolsets"`
+	CustomTools       types.List   `tfsdk:"custom_tools"`
+	Multiagent        types.Object `tfsdk:"multiagent"`
+	Version           types.Int64  `tfsdk:"version"`
+	CreatedAt         types.String `tfsdk:"created_at"`
+	UpdatedAt         types.String `tfsdk:"updated_at"`
+	ArchivedAt        types.String `tfsdk:"archived_at"`
 }
 
 func (d *AgentDataSource) Metadata(_ context.Context, req datasource.MetadataRequest, resp *datasource.MetadataResponse) {
@@ -82,6 +85,14 @@ func (d *AgentDataSource) Schema(_ context.Context, _ datasource.SchemaRequest, 
 			"model_speed": schema.StringAttribute{
 				Computed:            true,
 				MarkdownDescription: "Inference speed mode (`standard` or `fast`).",
+			},
+			"model_effort": schema.StringAttribute{
+				Computed:            true,
+				MarkdownDescription: "Effort level of the agent's model (`low`, `medium`, `high`, `xhigh` or `max`).",
+			},
+			"model_inference_geo": schema.StringAttribute{
+				Computed:            true,
+				MarkdownDescription: "Geographic region pinned for the agent's model requests, or null when unpinned.",
 			},
 			"description": schema.StringAttribute{
 				Computed:            true,
@@ -227,6 +238,28 @@ func (d *AgentDataSource) Schema(_ context.Context, _ datasource.SchemaRequest, 
 					},
 				},
 			},
+			"multiagent": schema.SingleNestedAttribute{
+				Computed:            true,
+				MarkdownDescription: "Coordinator topology, null when the agent has none. A `self` roster entry is resolved by the API into an `agent` entry carrying the agent's own ID.",
+				Attributes: map[string]schema.Attribute{
+					"type": schema.StringAttribute{
+						Computed:            true,
+						MarkdownDescription: "Topology type (`coordinator`).",
+					},
+					"agents": schema.ListNestedAttribute{
+						Computed:            true,
+						MarkdownDescription: "Resolved roster of agents the coordinator may spawn.",
+						NestedObject: schema.NestedAttributeObject{
+							Attributes: map[string]schema.Attribute{
+								"type":    schema.StringAttribute{Computed: true, MarkdownDescription: "Entry type: `agent` or `advisor`."},
+								"id":      schema.StringAttribute{Computed: true, MarkdownDescription: "Referenced agent ID (`agent` entries)."},
+								"version": schema.Int64Attribute{Computed: true, MarkdownDescription: "Resolved version of the referenced agent (`agent` entries)."},
+								"model":   schema.StringAttribute{Computed: true, MarkdownDescription: "Advisor model ID (`advisor` entries)."},
+							},
+						},
+					},
+				},
+			},
 			"version": schema.Int64Attribute{
 				Computed:            true,
 				MarkdownDescription: "The agent's current version.",
@@ -314,6 +347,9 @@ func mapAgentResponseToDataSource(agent *anthropic.BetaManagedAgentsAgent, data 
 	} else {
 		data.ModelSpeed = types.StringNull()
 	}
+
+	data.ModelEffort = modelEffortFromResponse(agent.Model)
+	data.ModelInferenceGeo = modelInferenceGeoFromResponse(agent.Model)
 
 	// Description / System: empty string maps to null.
 	if agent.Description != "" {
@@ -435,6 +471,11 @@ func mapAgentResponseToDataSource(agent *anthropic.BetaManagedAgentsAgent, data 
 	} else {
 		data.CustomTools = types.ListNull(types.ObjectType{AttrTypes: agentCustomToolAttrTypes})
 	}
+
+	// Multiagent (verbatim from the API)
+	multiagent, d := mapMultiagentToObject(agent.Multiagent)
+	diags.Append(d...)
+	data.Multiagent = multiagent
 
 	return diags
 }

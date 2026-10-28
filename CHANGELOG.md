@@ -1,3 +1,51 @@
+## [1.61.0](https://github.com/ippontech/terraform-provider-anthropic/compare/v1.60.0...v1.61.0) (2026-10-13)
+
+### ✨ Features
+
+* **provider:** obtain the org:admin token through workload identity federation ([#322](https://github.com/ippontech/terraform-provider-anthropic/issues/322)) ([a2455df](https://github.com/ippontech/terraform-provider-anthropic/commit/a2455df835fa17282f9e8db7943cb486e24b6fbb)), closes [#304](https://github.com/ippontech/terraform-provider-anthropic/issues/304)
+
+## [1.60.0](https://github.com/ippontech/terraform-provider-anthropic/compare/v1.59.0...v1.60.0) (2026-10-08)
+
+### ✨ Features
+
+* **message:** add stop_sequences, metadata, service_tier, inference_geo, thinking, output_config and cache_control ([#316](https://github.com/ippontech/terraform-provider-anthropic/issues/316)) ([52a55be](https://github.com/ippontech/terraform-provider-anthropic/commit/52a55be82dd1c6211f30d383ba91e8d1afe96f4a)), closes [#312](https://github.com/ippontech/terraform-provider-anthropic/issues/312) [#192](https://github.com/ippontech/terraform-provider-anthropic/issues/192) [#92](https://github.com/ippontech/terraform-provider-anthropic/issues/92)
+
+## [1.59.0](https://github.com/ippontech/terraform-provider-anthropic/compare/v1.58.0...v1.59.0) (2026-10-08)
+
+### ✨ Features
+
+* **workspace:** expose tags, external_key_id, compartment_id, inference_data_retention and user_profile_id ([#315](https://github.com/ippontech/terraform-provider-anthropic/issues/315)) ([4a3b07b](https://github.com/ippontech/terraform-provider-anthropic/commit/4a3b07b1e211197c24c295c00adb0e3a03e2fd07)), closes [#139](https://github.com/ippontech/terraform-provider-anthropic/issues/139)
+
+## [1.58.0](https://github.com/ippontech/terraform-provider-anthropic/compare/v1.57.0...v1.58.0) (2026-10-08)
+
+### ✨ Features
+
+* **files:** add anthropic_file and anthropic_files data sources ([#314](https://github.com/ippontech/terraform-provider-anthropic/issues/314)) ([001cc28](https://github.com/ippontech/terraform-provider-anthropic/commit/001cc28e1f42b68b9338ec7eb59b3417af59ebfb)), closes [#87](https://github.com/ippontech/terraform-provider-anthropic/issues/87)
+
+## [1.57.0](https://github.com/ippontech/terraform-provider-anthropic/compare/v1.56.1...v1.57.0) (2026-10-08)
+
+### ✨ Features
+
+* **count_tokens:** add thinking, output_config and cache_control parameters ([#313](https://github.com/ippontech/terraform-provider-anthropic/issues/313)) ([730f650](https://github.com/ippontech/terraform-provider-anthropic/commit/730f65063d7399a34ed6c9bc688b2dabc9f073a6)), closes [#93](https://github.com/ippontech/terraform-provider-anthropic/issues/93)
+
+## [1.56.1](https://github.com/ippontech/terraform-provider-anthropic/compare/v1.56.0...v1.56.1) (2026-10-08)
+
+### 📚 Documentation
+
+* restore the separator in the CLAUDE.md anthropic_agent entry ([#311](https://github.com/ippontech/terraform-provider-anthropic/issues/311)) ([3a893c6](https://github.com/ippontech/terraform-provider-anthropic/commit/3a893c6b125c26ad44e6b09546ff36da972be1ef)), closes [#310](https://github.com/ippontech/terraform-provider-anthropic/issues/310) [#309](https://github.com/ippontech/terraform-provider-anthropic/issues/309)
+
+## [1.56.0](https://github.com/ippontech/terraform-provider-anthropic/compare/v1.55.0...v1.56.0) (2026-10-08)
+
+### ✨ Features
+
+* **agent:** add multiagent coordinator roster ([#310](https://github.com/ippontech/terraform-provider-anthropic/issues/310)) ([2e82f47](https://github.com/ippontech/terraform-provider-anthropic/commit/2e82f47cd2528f213e60967058a2416cba13cb00)), closes [#306](https://github.com/ippontech/terraform-provider-anthropic/issues/306) [#167](https://github.com/ippontech/terraform-provider-anthropic/issues/167) [#309](https://github.com/ippontech/terraform-provider-anthropic/issues/309) [#167](https://github.com/ippontech/terraform-provider-anthropic/issues/167) [#309](https://github.com/ippontech/terraform-provider-anthropic/issues/309)
+
+## [1.55.0](https://github.com/ippontech/terraform-provider-anthropic/compare/v1.54.1...v1.55.0) (2026-10-08)
+
+### ✨ Features
+
+* **agent:** add model_effort and model_inference_geo ([#309](https://github.com/ippontech/terraform-provider-anthropic/issues/309)) ([07e76c8](https://github.com/ippontech/terraform-provider-anthropic/commit/07e76c8d720def03f4837e8ab73d5cfd9b0ea1c9)), closes [#274](https://github.com/ippontech/terraform-provider-anthropic/issues/274) [#306](https://github.com/ippontech/terraform-provider-anthropic/issues/306)
+
 ## [1.54.1](https://github.com/ippontech/terraform-provider-anthropic/compare/v1.54.0...v1.54.1) (2026-10-01)
 
 ### 🐛 Bug Fixes
